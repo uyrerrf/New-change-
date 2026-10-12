@@ -26,7 +26,7 @@ const CameraPanel: React.FC<Props> = ({ deviceId }) => {
         const frame = pendingRef.current;
         pendingRef.current = null;
         try {
-          const bmp    = await createImageBitmap(new Blob([frame], { type: 'image/jpeg' }));
+          const bmp    = await createImageBitmap(new Blob([frame as Uint8Array<ArrayBuffer>], { type: 'image/jpeg' }));
           const canvas = canvasRef.current;
           if (canvas) {
             const ctx = canvas.getContext('2d');

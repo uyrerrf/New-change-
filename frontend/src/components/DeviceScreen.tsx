@@ -67,7 +67,7 @@ const DeviceScreen: React.FC<Props> = ({ deviceId }) => {
         pendingFrame.current = null;
 
         try {
-          const blob = new Blob([frame], { type: 'image/jpeg' });
+          const blob = new Blob([frame as Uint8Array<ArrayBuffer>], { type: 'image/jpeg' });
           const bmp  = await createImageBitmap(blob);
           const canvas = canvasRef.current;
           if (canvas) {
