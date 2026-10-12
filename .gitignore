@@ -1,0 +1,34 @@
+node_modules/
+dist/
+.env
+*.local
+
+# APK output
+apk-output/
+signed-output/
+*.apk
+
+# Android build artifacts
+android-rat/.gradle/
+android-rat/app/build/
+android-rat/local.properties
+
+# TLS certs
+certs/
+
+# Frontend build
+frontend/dist/
+backend/public/
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db

