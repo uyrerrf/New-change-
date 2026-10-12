@@ -32,6 +32,7 @@ env:
   JAVA_VERSION: "17"
   ANDROID_COMPILE_SDK: "34"
   ANDROID_BUILD_TOOLS: "34.0.0"
+  CMDLINE_TOOLS_VERSION: "11076708"   # cmdline-tools 11.0 — stable, widely cached
 
 jobs:
   build:
@@ -51,16 +52,38 @@ jobs:
           distribution: temurin
           cache: gradle
 
-      # ── Android SDK ───────────────────────────────────────
+      # ── Android SDK (manual, pinned, reproducible) ────────
+      # setup-android action flakes with "Failed to find package 'tools'"
+      # when its bundled cmdline-tools drifts from the package index.
+      # Manual install with pinned cmdline-tools avoids that entirely.
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install build tools
         run: |
+          set -euo pipefail
+          SDK_ROOT="$HOME/android-sdk"
+          mkdir -p "$SDK_ROOT/cmdline-tools"
+          cd "$SDK_ROOT/cmdline-tools"
+
+          curl -fsSLo cmdline-tools.zip \
+            "https://dl.google.com/android/repository/commandlinetools-linux-${{ env.CMDLINE_TOOLS_VERSION }}_latest.zip"
+          unzip -q cmdline-tools.zip
+          rm cmdline-tools.zip
+          # cmdline-tools must live under a versioned dir; 'latest' is the convention
+          mv cmdline-tools latest
+
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK_ROOT"     >> "$GITHUB_ENV"
+          echo "$SDK_ROOT/platform-tools"              >> "$GITHUB_PATH"
+          echo "$SDK_ROOT/cmdline-tools/latest/bin"    >> "$GITHUB_PATH"
+          echo "$SDK_ROOT/build-tools/${{ env.ANDROID_BUILD_TOOLS }}" >> "$GITHUB_PATH"
+
+      - name: Install build tools + platform
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses > /dev/null
           sdkmanager --install \
             "build-tools;${{ env.ANDROID_BUILD_TOOLS }}" \
             "platforms;android-${{ env.ANDROID_COMPILE_SDK }}" \
-            --sdk_root=$ANDROID_SDK_ROOT
+            "platform-tools"
 
       # ── Neutralize hardcoded java.home + patch build config ──
       # gradle.properties may carry a developer-machine java.home that
