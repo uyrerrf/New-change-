@@ -358,7 +358,5 @@ function buildWsUrl(): string {
   const env = import.meta.env['VITE_WS_URL'] as string | undefined;
   if (env) return `${env}?token=${encodeURIComponent(token)}`;
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host  = window.location.hostname;
-  const port  = window.location.port === '5173' ? '3001' : window.location.port;
-  return `${proto}//${host}${port ? `:${port}` : ''}/ws/operator?token=${encodeURIComponent(token)}`;
+  return `${proto}//${window.location.host}/ws/operator?token=${encodeURIComponent(token)}`;
 }

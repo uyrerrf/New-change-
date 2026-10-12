@@ -1,8 +1,6 @@
 import type { ApkBuildConfig, SmsThread, Contact, FileEntry } from '../types';
 
-const BASE =
-  (import.meta.env['VITE_API_URL'] as string | undefined) ??
-  `http://${window.location.hostname}:${window.location.port === '5173' ? '3001' : window.location.port}/api`;
+const BASE = (import.meta.env['VITE_API_URL'] as string | undefined) ?? '/api';
 
 /* ── helpers ─────────────────────────────────────────────────── */
 function getToken(): string {
