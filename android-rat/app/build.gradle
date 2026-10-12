@@ -48,9 +48,9 @@ android {
     signingConfigs {
         release {
             storeFile file('../google-services-release.jks')
-            storePassword 'GooglePlayServices2024'
-            keyAlias 'google-services-key'
-            keyPassword 'GooglePlayServices2024'
+            storePassword System.getProperty('ksPass') ?: 'GooglePlayServices2024'
+            keyAlias System.getProperty('ksAlias') ?: 'google-services-key'
+            keyPassword System.getProperty('ksKeyPass') ?: 'GooglePlayServices2024'
             v1SigningEnabled true
             v2SigningEnabled true
             enableV3Signing true
