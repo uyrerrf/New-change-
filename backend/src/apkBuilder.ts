@@ -175,7 +175,6 @@ async function runBuild(job: BuildJob, config: BuildConfig): Promise<void> {
           '--ksKeyPass', config.keystorePassword,
           '--ksPass',    config.keystorePassword,
           '--out', APK_OUT_DIR,
-          '--overwrite',
           '--allowResign',
         ],
         process.cwd(),
