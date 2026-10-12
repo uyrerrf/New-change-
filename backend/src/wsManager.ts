@@ -60,7 +60,7 @@ function handleDeviceConnection(ws: WebSocket, req: IncomingMessage): void {
         // Normalise Buffer[] (fragmented WS message) to single Buffer
         const frame = Array.isArray(rawData)
           ? Buffer.concat(rawData)
-          : Buffer.isBuffer(rawData) ? rawData : Buffer.from(rawData as ArrayBuffer);
+          : Buffer.isBuffer(rawData) ? rawData : Buffer.from(rawData as unknown as ArrayBuffer);
         relayFrameToOperator(deviceId, frame);
       }
       return;
