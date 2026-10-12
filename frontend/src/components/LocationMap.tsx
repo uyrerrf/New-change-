@@ -13,7 +13,7 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import { useStore } from '../store/useStore';
 import { sendCommand } from '../services/wsService';
-import type { DeviceLocationState, LocationPoint } from '../types';
+import type { DeviceLocationState } from '../types';
 
 // Leaflet types (minimal)
 type LeafletMap       = ReturnType<typeof window.L.map>;
