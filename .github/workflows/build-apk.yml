@@ -35,7 +35,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
 
     steps:
@@ -54,13 +54,20 @@ jobs:
       # ── Android SDK ───────────────────────────────────────
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 11076708
+          packages: platform-tools
 
       - name: Install build tools
         run: |
-          sdkmanager --install \
+          set -e
+          SDKMANAGER=$(find "$ANDROID_SDK_ROOT/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -1)
+          [ -n "$SDKMANAGER" ] || { echo "::error::sdkmanager not found"; exit 1; }
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          yes | "$SDKMANAGER" --install \
             "build-tools;${{ env.ANDROID_BUILD_TOOLS }}" \
             "platforms;android-${{ env.ANDROID_COMPILE_SDK }}" \
-            --sdk_root=$ANDROID_SDK_ROOT
+            --sdk_root="$ANDROID_SDK_ROOT"
 
       # ── Patch local.properties ────────────────────────────
       - name: Patch build config
