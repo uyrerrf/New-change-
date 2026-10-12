@@ -13,7 +13,7 @@ services:
       - .env
     volumes:
       - apk_output:/app/backend/apk-output
-      - ./android-rat:/app/android-rat:ro
+      - ./android-rat:/app/android-rat
       - ./certs:/app/backend/certs:ro
     environment:
       - NODE_ENV=production

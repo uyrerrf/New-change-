@@ -30,5 +30,8 @@ COPY --from=backend-builder /app/backend/public   ./public
 # APK output volume mount point
 RUN mkdir -p apk-output
 
+# uber-apk-signer for APK signing
+COPY uber-apk-signer-main/target/uber-apk-signer.jar ./uber-apk-signer.jar
+
 EXPOSE 3001 3002
 CMD ["node", "dist/server.js"]
