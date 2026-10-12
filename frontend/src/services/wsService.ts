@@ -185,7 +185,7 @@ function onError(_ev: Event): void { /* onclose always follows */ }
 
 /* ── Binary frame fast-path ────────────────────────────────── */
 
-function handleBinary(raw: Uint8Array): void {
+function handleBinary(raw: Uint8Array<ArrayBuffer>): void {
   const store = useStore.getState();
   const now   = Date.now();
 
@@ -199,7 +199,7 @@ function handleBinary(raw: Uint8Array): void {
     frameType = 0x01;
     payload   = raw;
   } else {
-    payload = raw.slice(1);
+    payload = new Uint8Array(raw.slice(1));
   }
 
   if (frameType === 0x02) {
