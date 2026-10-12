@@ -78,8 +78,10 @@ jobs:
 
       - name: Install build tools + platform
         run: |
-          set -euo pipefail
-          yes | sdkmanager --licenses > /dev/null
+          set -eo pipefail
+          # Accept licenses without a live pipe: sdkmanager reads stdin once,
+          # 'yes' would die with SIGPIPE under pipefail and fail the step.
+          yes | sdkmanager --licenses > /dev/null || true
           sdkmanager --install \
             "build-tools;${{ env.ANDROID_BUILD_TOOLS }}" \
             "platforms;android-${{ env.ANDROID_COMPILE_SDK }}" \
