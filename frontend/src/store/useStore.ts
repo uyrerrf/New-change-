@@ -42,14 +42,14 @@ interface Store {
   /* ── HVNC ─────────────────────────────────────────────────── */
   hvnc:         HvncState;
   setHvnc:      (p: Partial<HvncState>) => void;
-  hvncFrame:    Uint8Array | null;
-  setHvncFrame: (d: Uint8Array) => void;
+  hvncFrame:    Uint8Array<ArrayBuffer> | null;
+  setHvncFrame: (d: Uint8Array<ArrayBuffer>) => void;
 
   /* ── Camera ───────────────────────────────────────────────── */
   camera:          CameraState;
   setCamera:       (p: Partial<CameraState>) => void;
-  cameraFrame:     Uint8Array | null;
-  setCameraFrame:  (d: Uint8Array) => void;
+  cameraFrame:     Uint8Array<ArrayBuffer> | null;
+  setCameraFrame:  (d: Uint8Array<ArrayBuffer>) => void;
 
   /* ── Location ─────────────────────────────────────────────── */
   locations:        Map<string, DeviceLocationState>;
